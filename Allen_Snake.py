@@ -16,13 +16,14 @@ import pygame
 import time
 import numpy as np
 import pickle
+from collections import deque
 
 #####################################################
 # Constants
 #
 SCREEN_WIDTH  = 880
 SCREEN_HEIGHT = 880
-APPLE_REWARD  = 50
+APPLE_REWARD  = 420
 COLLISION_PENALTY = 750
 TURN_PENALTY = 1
 
@@ -39,6 +40,8 @@ pygame.display.set_icon(logo)
 
 pygame.display.set_caption("Allen's Homemade Snake Game")
 
+
+imitation_data = deque(maxlen=50000)
 
 class Player:
     direction = 0
@@ -120,6 +123,8 @@ class Player:
             vec[1] = 2
         return tuple(vec)
 
+    def get_coords(self):
+        return [np.array([self.x[i]/44, self.y[i]/44]).astype(int) for i in range(len(self.x))]
 
 class Food:
     
@@ -127,7 +132,7 @@ class Food:
         self.x = x
         self.y = y
         print("Apple")
-        print(self.x, self.y)
+        print(self.x//44, self.y//44)
         
     def relocate(self):
         self.x = 44*random.randint(0,19)
@@ -136,18 +141,43 @@ class Food:
         # print(self.x, self.y)
         screen.blit(appleImg, (self.x, self.y))
 
-
+class Board:
+    
+    def __init__(self, snake_coords, food_coords):
+        print(snake_coords, snake_coords[0][0], type(snake_coords[0][0]))
+        self.board = np.zeros((20,20))
+        self.board[snake_coords[0][0], snake_coords[0][1]] = 1
+        for i in range(1, len(snake_coords)):
+            self.board[snake_coords[i][0], snake_coords[i][1]] = 2
+        for i in range(len(food_coords)):
+            self.board[food_coords[i, 0], food_coords[i, 1]] = 3
+    
+    def update(self, snake_coords, food_coords):
+        self.board = np.zeros((20,20))
+        self.board[snake_coords[0][0], snake_coords[0][1]] = 1
+        for i in range(1, len(snake_coords)):
+            self.board[snake_coords[i][0], snake_coords[i][1]] = 2
+        for i in range(len(food_coords)):
+            self.board[food_coords[i, 0], food_coords[i, 1]] = 3
+            
+    def get_board(self):
+        board2 = self.board.copy()
+        #board2 = np.expand_dims(board2, axis=0)
+        board2 = np.expand_dims(board2, axis=-1)
+        return board2
+    
+    
 class Q_Snake:
     
     def __init__(self, epsilon, learning_rate, discount, new_q = True):
         self.mySnake = Player(352, 484)
         #self.q = np.random.uniform(low=0, high=1, size=(5, 40, 40, 5))
-        self.q = np.random.uniform(low=0, high=1, size=(3, 3, 3, 3, 3, 3, 5))
+        self.q = np.random.uniform(low=0, high=1, size=(3, 3, 3, 3, 3, 3, 21, 5))
         self.epsilon = epsilon
         self.learning_rate = learning_rate
         self.discount = discount
+        self.EPISODES = 100001
         self.epsilon0 = epsilon
-        self.EPISODES = 1000001
         if not new_q:
             qt = open('qtable.pickle', 'rb')
             self.q = pickle.load(qt, encoding='bytes')
@@ -158,7 +188,7 @@ class Q_Snake:
         if (random.random() < self.epsilon):
             action = random.randint(0,4)
         else:
-            action = np.argmax(self.q[obs[0]][obs[1]][obs[2]][obs[3]][obs[4]][obs[5]])
+            action = np.argmax(self.q[obs[0]][obs[1]][obs[2]][obs[3]][obs[4]][obs[5]][obs[6]])
             
         self.last_obs = obs
         self.last_action = action
@@ -168,148 +198,160 @@ class Q_Snake:
         if (random.random() < self.epsilon):
             action = random.randint(0,4)
         else:
-            action = np.argmax(self.q[obs[0]][obs[1]][obs[2]][obs[3]][obs[4]][obs[5]])
+            action = np.argmax(self.q[obs[0]][obs[1]][obs[2]][obs[3]][obs[4]][obs[5]][obs[6]])
             
-        self.q[self.last_obs[0]][self.last_obs[1]][self.last_obs[2]][self.last_obs[3]][self.last_obs[4]][self.last_obs[5]][self.last_action] = self.q[self.last_obs[0]][self.last_obs[1]][self.last_obs[2]][self.last_obs[3]][self.last_obs[4]][self.last_obs[5]][self.last_action] + self.learning_rate*(rew + self.discount*(np.max(self.q[obs[0]][obs[1]][obs[2]][obs[3]][obs[4]][obs[5]])) - self.q[self.last_obs[0]][self.last_obs[1]][self.last_obs[2]][self.last_obs[3]][self.last_obs[4]][self.last_obs[5]][self.last_action])
+        self.q[self.last_obs[0]][self.last_obs[1]][self.last_obs[2]][self.last_obs[3]][self.last_obs[4]][self.last_obs[5]][self.last_obs[6]][self.last_action] = self.q[self.last_obs[0]][self.last_obs[1]][self.last_obs[2]][self.last_obs[3]][self.last_obs[4]][self.last_obs[5]][self.last_obs[6]][self.last_action] + self.learning_rate*(rew + self.discount*(np.max(self.q[obs[0]][obs[1]][obs[2]][obs[3]][obs[4]][obs[5]][obs[6]])) - self.q[self.last_obs[0]][self.last_obs[1]][self.last_obs[2]][self.last_obs[3]][self.last_obs[4]][self.last_obs[5]][self.last_obs[6]][self.last_action])
         self.last_obs = obs
         self.last_action = action
         return action
         
     def agentEnd(self, obs, rew):
-        self.q[self.last_obs[0]][self.last_obs[1]][self.last_obs[2]][self.last_obs[3]][self.last_obs[4]][self.last_obs[5]][self.last_action] = self.q[self.last_obs[0]][self.last_obs[1]][self.last_obs[2]][self.last_obs[3]][self.last_obs[4]][self.last_obs[5]][self.last_action] + self.learning_rate*(rew  - self.q[self.last_obs[0]][self.last_obs[1]][self.last_obs[2]][self.last_obs[3]][self.last_obs[4]][self.last_obs[5]][self.last_action])
+        self.q[self.last_obs[0]][self.last_obs[1]][self.last_obs[2]][self.last_obs[3]][self.last_obs[4]][self.last_obs[5]][self.last_obs[6]][self.last_action] = self.q[self.last_obs[0]][self.last_obs[1]][self.last_obs[2]][self.last_obs[3]][self.last_obs[4]][self.last_obs[5]][self.last_obs[6]][self.last_action] + self.learning_rate*(rew  - self.q[self.last_obs[0]][self.last_obs[1]][self.last_obs[2]][self.last_obs[3]][self.last_obs[4]][self.last_obs[5]][self.last_obs[6]][self.last_action])
         #print("reset snake?")
         self.mySnake.reset(352, 484)
         
     def epsilon_decay(self, min_epsilon):
         #self.epsilon -= (self.epsilon0/float(self.EPISODES) - min_epsilon/float(self.EPISODES))
-        self.epsilon = self.epsilon * 2**(-1/float(100000))
+        self.epsilon = self.epsilon * 2**(-1/float(1000))
         
 
 running = True
 #snake = Player(352, 484)
 apple = Food(44*random.randint(0,19), 44*random.randint(0,19))
 
-# while(running):
-#     for event in pygame.event.get():
-#         if event.type == pygame.QUIT:
-#             running = False
-#     screen.fill((0,0,0))
+while(running):
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+    screen.fill((0,0,0))
     
-#     pygame.event.pump()
-#     keys = pygame.key.get_pressed()
+    pygame.event.pump()
+    keys = pygame.key.get_pressed()
     
-#     if keys[K_RIGHT]:
-#         snake.set_direction(0)
-#     elif keys[K_LEFT]:
-#         snake.set_direction(2)
-#     elif keys[K_DOWN]:
-#         snake.set_direction(1)
-#     elif keys[K_UP]:
-#         snake.set_direction(3)
-#     snake.move(snake.direction)
-#     if snake.is_collision():
-#         print("COLLISION! Game Over!!")
-#         running = False
-#         continue
-#     for i in range(len(snake.x)):
-#         screen.blit(snakeImg, (snake.x[i], snake.y[i]))
+    if keys[K_RIGHT]:
+        snake.set_direction(0)
+    elif keys[K_LEFT]:
+        snake.set_direction(2)
+    elif keys[K_DOWN]:
+        snake.set_direction(1)
+    elif keys[K_UP]:
+        snake.set_direction(3)
+    snake.move(snake.direction)
+    if snake.is_collision():
+        print("COLLISION! Game Over!!")
+        running = False
+        continue
+    for i in range(len(snake.x)):
+        screen.blit(snakeImg, (snake.x[i], snake.y[i]))
     
-#     #screen.blit(snakeImg, (snake.x, snake.y))
-#     screen.blit(appleImg, (apple.x, apple.y))
-#     #snake.move(random.randint(0,4))
-#     if(snake.x[0] == apple.x and snake.y[0] == apple.y):
-#         apple.relocate()
-#         snake.grow()
-#     pygame.display.update()
-#     time.sleep(0.10)
-#     print(snake.x, snake.y)
+    #screen.blit(snakeImg, (snake.x, snake.y))
+    screen.blit(appleImg, (apple.x, apple.y))
+    #snake.move(random.randint(0,4))
+    if(snake.x[0] == apple.x and snake.y[0] == apple.y):
+        apple.relocate()
+        snake.grow()
+    pygame.display.update()
+    time.sleep(0.10)
+    print(snake.x, snake.y)
 
 
-learner = Q_Snake(1, 0.06, 0.995, True)
-f = open('qtable.pickle', 'wb')
-for j in range(learner.EPISODES):
-    show = False
-    if j % 1000 == 0 and j != 0: show = True
-    print("j=",j)
-    running = True
-    dist_vect = learner.mySnake.get_dist_vector(apple)
-    obs = [0, dist_vect[0], dist_vect[1],0,0,0]
-    print(obs)
-    act = learner.agentStart(obs)
-    rews = 0
+# learner = Q_Snake(1, 0.3, 0.995, True)
+# game_board = Board(learner.mySnake.get_coords(), np.array([(apple.x/44, apple.y/44)]).astype(int))
+# prev_board = game_board.get_board().copy()
+# print(game_board.board)
+# f = open('test_imitation_data', 'wb')
+# for j in range(learner.EPISODES):
+#     show = False
+#     if j % 10000 == 0 and j != 0: show = True
+#     print("j=",j)
+#     running = True
+#     dist_vect = learner.mySnake.get_dist_vector(apple)
+#     obs = [0, dist_vect[0], dist_vect[1],0,0,0,0]
+#     #print(obs)
+#     act = learner.agentStart(obs)
+#     rews = 0
     
-    while(running):
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-                pygame.quit()
-        if show: screen.fill((0,0,0))
-        obs = [0,0,0,0,0,0]
-        # pygame.event.pump()
-        # keys = pygame.key.get_pressed()
-        # if j > learner.EPISODES // 4:
-        #     TURN_PENALTY = 1
-        # else:
-        #     TURN_PENALTY = -(len(learner.mySnake.x)-3)
-        rew = -TURN_PENALTY
-        if act == 0:
-            learner.mySnake.set_direction(0)
-        elif act == 2:
-            learner.mySnake.set_direction(2)
-        elif act == 1:
-            learner.mySnake.set_direction(1)
-        elif act == 3:
-            learner.mySnake.set_direction(3)
-        learner.mySnake.move(learner.mySnake.direction)
-        if learner.mySnake.is_collision(44, 0):
-            obs[0] = 1
-        elif learner.mySnake.is_collision(88,0):
-            obs[0] = 2
-        if learner.mySnake.is_collision(-44, 0):
-            obs[3] = 1
-        elif learner.mySnake.is_collision(-88,0):
-            obs[3] = 2
-        if learner.mySnake.is_collision(0, 44):
-            obs[4] = 1
-        elif learner.mySnake.is_collision(0,88):
-            obs[4] = 2
-        if learner.mySnake.is_collision(0, -44):
-            obs[5] = 1
-        elif learner.mySnake.is_collision(0,-88):
-            obs[5] = 2
+#     while(running):
+#         for event in pygame.event.get():
+#             if event.type == pygame.QUIT:
+#                 running = False
+#                 pygame.quit()
+#         if show: screen.fill((0,0,0))
+#         obs = [0,0,0,0,0,0,0]
+#         # pygame.event.pump()
+#         # keys = pygame.key.get_pressed()
+#         # if j > learner.EPISODES // 4:
+#         #     TURN_PENALTY = 1
+#         # else:
+#         #     TURN_PENALTY = -(len(learner.mySnake.x)-3)
+#         rew = -TURN_PENALTY
+#         if act == 0:
+#             learner.mySnake.set_direction(0)
+#         elif act == 2:
+#             learner.mySnake.set_direction(2)
+#         elif act == 1:
+#             learner.mySnake.set_direction(1)
+#         elif act == 3:
+#             learner.mySnake.set_direction(3)
+#         learner.mySnake.move(learner.mySnake.direction)
+#         if learner.mySnake.is_collision(44, 0):
+#             obs[0] = 1
+#         elif learner.mySnake.is_collision(88,0):
+#             obs[0] = 2
+#         if learner.mySnake.is_collision(-44, 0):
+#             obs[3] = 1
+#         elif learner.mySnake.is_collision(-88,0):
+#             obs[3] = 2
+#         if learner.mySnake.is_collision(0, 44):
+#             obs[4] = 1
+#         elif learner.mySnake.is_collision(0,88):
+#             obs[4] = 2
+#         if learner.mySnake.is_collision(0, -44):
+#             obs[5] = 1
+#         elif learner.mySnake.is_collision(0,-88):
+#             obs[5] = 2
         
             
-        dist_vect = learner.mySnake.get_dist_vector(apple)
-        obs[1] = dist_vect[0]
-        obs[2] = dist_vect[1]
-        if learner.mySnake.is_collision():
-            #print("COLLISION! Game Over!!")
-            rew = -COLLISION_PENALTY
-            rews += rew
-            print(rews)
-            learner.agentEnd(obs, rew)
-            running = False
-            learner.epsilon_decay(0.1)
-            print(learner.epsilon)
-            continue
-        if show:
-            for i in range(len(learner.mySnake.x)):
-                screen.blit(snakeImg, (learner.mySnake.x[i], learner.mySnake.y[i]))
+#         dist_vect = learner.mySnake.get_dist_vector(apple)
+#         obs[1] = dist_vect[0]
+#         obs[2] = dist_vect[1]
         
-        #screen.blit(snakeImg, (snake.x, snake.y))
-        if show: screen.blit(appleImg, (apple.x, apple.y))
-        #snake.move(random.randint(0,4))
-        if(learner.mySnake.x[0] == apple.x and learner.mySnake.y[0] == apple.y):
-            rew = APPLE_REWARD
-            apple.relocate()
-            learner.mySnake.grow()
-        if show: pygame.display.update()
-        rews += rew
-        act = learner.takeAction(obs, rew)
-        if show: time.sleep(0.11)
-        #print(learner.mySnake.x, learner.mySnake.y)
-        #print("i=", i)
+#         obs[6] = len(learner.mySnake.x) // 20
+#         if learner.mySnake.is_collision():
+#             #print("COLLISION! Game Over!!")
+#             rew = -COLLISION_PENALTY
+#             rews += rew
+#             if show: print(rews)
+#             learner.agentEnd(obs, rew)
+#             game_board.update(learner.mySnake.get_coords(), np.array([(apple.x/44, apple.y/44)]).astype(int))
+#             prev_board = game_board.get_board()
+#             imitation_data.append((prev_board, act, rew, game_board.get_board(), False))
+#             running = False
+#             learner.epsilon_decay(0.1)
+#             if show: print(learner.epsilon)
+#             continue
+#         if show:
+#             for i in range(len(learner.mySnake.x)):
+#                 screen.blit(snakeImg, (learner.mySnake.x[i], learner.mySnake.y[i]))
+#                 #print(game_board.board)
+        
+#         #screen.blit(snakeImg, (snake.x, snake.y))
+#         if show: screen.blit(appleImg, (apple.x, apple.y))
+#         #snake.move(random.randint(0,4))
+#         if(learner.mySnake.x[0] == apple.x and learner.mySnake.y[0] == apple.y):
+#             rew = APPLE_REWARD
+#             apple.relocate()
+#             learner.mySnake.grow()
+#         if show: pygame.display.update()
+#         rews += rew
+#         act = learner.takeAction(obs, rew)
+#         game_board.update(learner.mySnake.get_coords(), np.array([(apple.x/44, apple.y/44)]).astype(int))
+#         prev_board = game_board.get_board()
+#         imitation_data.append((prev_board, act, rew, game_board.get_board(), False))
+#         if show: time.sleep(0.02)
+#         #print(learner.mySnake.x, learner.mySnake.y)
+#         #print("i=", i)
          
-pickle.dump(learner.q, f)
+# pickle.dump(imitation_data, f)
 f.close()
 pygame.quit()
